@@ -1,0 +1,25 @@
+For ease of writing common layouts, the server handles the following things:
+  - Gaps and border sizes. Layouts should just place windows assuming no gaps.
+  - Fullscreen window requests, both true and 'maximized'. Layouts will receive requests when a window goes fullscreen
+    and when it exits
+  - Generic 'visual' focus movement.
+  - Generic 'visual' window movement.
+  - Flagging windows as part of a 'master' stack. This includes common layoutmsgs for adding/swapping/removing masters
+  - Drag and drop
+  - Resizing windows via mouse or keyboard commands
+  - flagging windows as 'pseudotiled' (TODO)
+  - The server maintains the order of windows. Clients can modify this when they push window info for a layout.
+
+
+
+Common layoutmessage commands:
+
+swapwithmaster
+focusmaster
+cyclenext
+cycleprev
+swapnext
+swapprev
+addmaster
+removemaster
+resetconfig
