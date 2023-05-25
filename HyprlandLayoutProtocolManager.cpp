@@ -131,9 +131,7 @@ void CHyprlandLayoutProtocolManager::displayDestroy() {
 
 
 void CHyprlandLayoutProtocolManager::sendLayoutDemand(wl_resource *resource, uint32_t usable_width, uint32_t usable_height, int32_t workspace,uint32_t window_count, uint32_t serial) {
-	if (window_count > 0) {
 		hyprland_layout_v1_send_layout_demand(resource, usable_width, usable_height, workspace, window_count, serial);
-	}
 }
 
 void CHyprlandLayoutProtocolManager::sendLayoutDemandConfig(wl_resource *resource, const char *config_data, uint32_t serial) {

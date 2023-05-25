@@ -61,7 +61,7 @@ SHyprlandLayoutNodeData* CHyprlandLayout::getMasterNodeOnWorkspace(const int& ws
     return nullptr;
 }
 
-SHyprlandLayoutWorkspaceData* CHyprlandLayout::getMasterWorkspaceData(const int& ws) {
+SHyprlandLayoutWorkspaceData* CHyprlandLayout::getLayoutWorkspaceData(const int& ws) {
     for (auto& n : m_lHyprlandLayoutWorkspacesData) {
         if (n.workspaceID == ws)
             return &n;
@@ -256,7 +256,7 @@ void CHyprlandLayout::calculateWorkspace(const int& ws) {
     if (!PWORKSPACE)
         return;
 
-    const auto         PWORKSPACEDATA = getMasterWorkspaceData(ws);
+    const auto         PWORKSPACEDATA = getLayoutWorkspaceData(ws);
     const auto         PMONITOR = g_pCompositor->getMonitorFromID(PWORKSPACE->m_iMonitorID);
     const uint32_t num_nodes = getNodesOnWorkspace(PWORKSPACE->m_iID);
 
@@ -320,7 +320,7 @@ void CHyprlandLayout::hyprlandLayoutCommit(const char *layout_name, const char *
     nd.requestIdx = 0;
 		applyNodeDataToWindow(&nd);
     if (WSDATA == nullptr) {
-      WSDATA = getMasterWorkspaceData(nd.workspaceID);
+      WSDATA = getLayoutWorkspaceData(nd.workspaceID);
       WSDATA->layoutConfigData = config_data;
     }
 
@@ -372,28 +372,11 @@ void CHyprlandLayout::applyNodeDataToWindow(SHyprlandLayoutNodeData* pNode) {
         return;
     }
 
-    static auto* const PNOGAPSWHENONLY = &g_pConfigManager->getConfigValuePtr("master:no_gaps_when_only")->intValue;
-
     PWINDOW->m_vSize     = pNode->size;
     PWINDOW->m_vPosition = pNode->position;
 
     auto calcPos  = PWINDOW->m_vPosition + Vector2D(*PBORDERSIZE, *PBORDERSIZE);
     auto calcSize = PWINDOW->m_vSize - Vector2D(2 * *PBORDERSIZE, 2 * *PBORDERSIZE);
-
-    if (*PNOGAPSWHENONLY && !g_pCompositor->isWorkspaceSpecial(PWINDOW->m_iWorkspaceID) &&
-        (getNodesOnWorkspace(PWINDOW->m_iWorkspaceID) == 1 ||
-         (PWINDOW->m_bIsFullscreen && g_pCompositor->getWorkspaceByID(PWINDOW->m_iWorkspaceID)->m_efFullscreenMode == FULLSCREEN_MAXIMIZED))) {
-        PWINDOW->m_vRealPosition = calcPos - Vector2D(*PBORDERSIZE, *PBORDERSIZE);
-        PWINDOW->m_vRealSize     = calcSize + Vector2D(2 * *PBORDERSIZE, 2 * *PBORDERSIZE);
-
-        PWINDOW->updateWindowDecos();
-
-        PWINDOW->m_sSpecialRenderData.rounding = false;
-        PWINDOW->m_sSpecialRenderData.border   = false;
-        PWINDOW->m_sSpecialRenderData.decorate = false;
-
-        return;
-    }
 
     PWINDOW->m_sSpecialRenderData.rounding = true;
     PWINDOW->m_sSpecialRenderData.border   = true;
@@ -410,19 +393,19 @@ void CHyprlandLayout::applyNodeDataToWindow(SHyprlandLayoutNodeData* pNode) {
     calcPos             = calcPos + RESERVED.topLeft;
     calcSize            = calcSize - (RESERVED.topLeft + RESERVED.bottomRight);
 
-    if (g_pCompositor->isWorkspaceSpecial(PWINDOW->m_iWorkspaceID)) {
+    /*if (g_pCompositor->isWorkspaceSpecial(PWINDOW->m_iWorkspaceID)) {
         static auto* const PSCALEFACTOR = &g_pConfigManager->getConfigValuePtr("master:special_scale_factor")->floatValue;
 
         PWINDOW->m_vRealPosition = calcPos + (calcSize - calcSize * *PSCALEFACTOR) / 2.f;
         PWINDOW->m_vRealSize     = calcSize * *PSCALEFACTOR;
 
         g_pXWaylandManager->setWindowSize(PWINDOW, calcSize * *PSCALEFACTOR);
-    } else {
+    } else {*/
         PWINDOW->m_vRealSize     = calcSize;
         PWINDOW->m_vRealPosition = calcPos;
 
         g_pXWaylandManager->setWindowSize(PWINDOW, calcSize);
-    }
+    //}
 
     if (m_bForceWarps) {
         g_pHyprRenderer->damageWindow(PWINDOW);
@@ -833,7 +816,7 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
         }
     } else if (command == "resetconfig") {
       const auto WSID = header.pWindow->m_iWorkspaceID;
-      auto WSDATA = getMasterWorkspaceData(WSID);
+      auto WSDATA = getLayoutWorkspaceData(WSID);
       if (WSDATA != nullptr) {
         WSDATA->layoutConfigData = "";
       }

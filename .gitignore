@@ -1,0 +1,6 @@
+*.o
+*-protocol.c
+*-protocol.h
+*.so
+__pycache__/
+

@@ -132,6 +132,7 @@ def layout_handle_layout_demand(layout, usable_w, usable_h, workspace_id, window
     global proxy_map
     global loaded_layouts
 
+    print("LAYOUT DEMAND")
     layout_name = proxy_map[layout]
     if not layout_name: return
     reload_module_if_changed(layout_name)

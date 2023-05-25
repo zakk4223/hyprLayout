@@ -88,7 +88,7 @@ class CHyprlandLayout : public IHyprLayout {
     void                              applyNodeDataToWindow(SHyprlandLayoutNodeData*);
     void                              resetNodeSplits(const int&);
     SHyprlandLayoutNodeData*                  getNodeFromWindow(CWindow*);
-    SHyprlandLayoutWorkspaceData*             getMasterWorkspaceData(const int&);
+    SHyprlandLayoutWorkspaceData*             getLayoutWorkspaceData(const int&);
     SHyprlandLayoutNodeData*                  getNodeFromWindowID(std::string const &windowID);
     void                              calculateWorkspace(const int&);
     CWindow*                          getNextWindow(CWindow*, bool);
