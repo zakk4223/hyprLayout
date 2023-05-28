@@ -59,7 +59,7 @@ class LayoutRequestBase(object):
     def commit_new_layout(self):
         for idx, swin in enumerate(self.windows):
             if swin.window_idx == -1: swin.window_idx = idx
-            self.wayland_layout.push_window_dimensions(swin.window_id, swin.window_idx, swin.x, swin.y, swin.width, swin.height, 0, self.serial)
+            self.wayland_layout.push_window_dimensions(swin.window_id, swin.window_idx, swin.x, swin.y, swin.width, swin.height, self.serial)
         self.wayland_layout.commit("test" , json.dumps(self.layout_config), self.serial)
 
 

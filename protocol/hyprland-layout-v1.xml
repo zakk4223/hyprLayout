@@ -117,7 +117,6 @@
       <arg name="y" type="int" summary="y coordinate of view"/>
       <arg name="width" type="uint" summary="width of view"/>
       <arg name="height" type="uint" summary="height of view"/>
-      <arg name="reject" type="uint" summary="The layout has rejected this window and it should be forced to float"/>
       <arg name="serial" type="uint" summary="serial of layout demand"/>
     </request>
 

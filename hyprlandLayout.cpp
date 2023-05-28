@@ -279,24 +279,18 @@ void CHyprlandLayout::calculateWorkspace(const int& ws) {
     //Layout commit is done externally (in either calculateWorkspace or layoutMessage)
 }
 
-void CHyprlandLayout::hyprlandLayoutWindowDimensions(const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t reject, uint32_t serial)
+void CHyprlandLayout::hyprlandLayoutWindowDimensions(const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t serial)
 {
   //TODO: handle reject-float
 
   std::string windowSTR = window_id;
   auto nd = getNodeFromWindowID(windowSTR);
 
-  if (reject) {
-    nd->pWindow->m_bIsFloating = true;
-    m_lHyprlandLayoutNodesData.remove(*nd);
-    g_pLayoutManager->getCurrentLayout()->onWindowCreatedFloating(nd->pWindow);
-  } else {
 		const auto PMONITOR = g_pCompositor->getMonitorFromID(nd->pWindow->m_iMonitorID);
 		nd->position = PMONITOR->vecPosition  + PMONITOR->vecReservedTopLeft + Vector2D(x+0.0f, y+0.0f);
 		nd->size = Vector2D(width+0.0f, height+0.0f);
 		nd->requestDone = true;
     nd->requestIdx = window_index;
-  }
 }
 
 void CHyprlandLayout::hyprlandLayoutCommit(const char *layout_name, const char *config_data, uint32_t serial) {

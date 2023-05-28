@@ -1,4 +1,6 @@
 
+#this is sorta broken with hyprland mouse focus...
+
 class LayoutRequest(LayoutRequestBase):
 
     def default_config(self):

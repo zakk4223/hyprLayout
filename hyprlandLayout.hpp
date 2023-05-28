@@ -65,7 +65,7 @@ class CHyprlandLayout : public IHyprLayout {
 
     virtual void                     onEnable();
     virtual void                     onDisable();
-    void 			     hyprlandLayoutWindowDimensions(const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t reject, uint32_t serial);
+    void 			     hyprlandLayoutWindowDimensions(const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t serial);
     void			     hyprlandLayoutCommit(const char *layout_name, const char *config_data, uint32_t serial);
     void           workspaceDestroyed(const int& ws);
 

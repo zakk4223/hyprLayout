@@ -23,9 +23,9 @@ void handleGetLayout(wl_client *client, wl_resource *resource, uint32_t id, cons
 	g_pHyprlandLayoutProtocolManager->getLayout(client, resource, id, r_namespace);
 }
 
-void handlePushWindowDimensions(wl_client *client, wl_resource *resource, const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t reject, uint32_t serial) {
+void handlePushWindowDimensions(wl_client *client, wl_resource *resource, const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t serial) {
 
-	g_pHyprlandLayoutProtocolManager->pushWindowDimensions(client, resource, window_id, window_index, x, y, width, height, reject, serial);
+	g_pHyprlandLayoutProtocolManager->pushWindowDimensions(client, resource, window_id, window_index, x, y, width, height, serial);
 }
 
 
@@ -84,10 +84,10 @@ void CHyprlandLayoutProtocolManager::workspaceDestroyed(int workspace) {
 }
 
 
-void CHyprlandLayoutProtocolManager::pushWindowDimensions(wl_client *client, wl_resource *resource, const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t reject, uint32_t serial) {
+void CHyprlandLayoutProtocolManager::pushWindowDimensions(wl_client *client, wl_resource *resource, const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t serial) {
 	const auto LAYOUT = layoutFromResource(resource);
 	if (LAYOUT) {
-		LAYOUT->hyprlandLayoutWindowDimensions(window_id, window_index, x, y, width, height, reject, serial);
+		LAYOUT->hyprlandLayoutWindowDimensions(window_id, window_index, x, y, width, height, serial);
 	}
 }
 
