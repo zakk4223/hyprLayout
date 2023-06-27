@@ -1,7 +1,8 @@
 #include "hyprlandLayout.hpp"
 #include "HyprlandLayoutProtocolManager.hpp"
-#include <src/Compositor.hpp>
+#include <hyprland/src/Compositor.hpp>
 #include <ranges>
+#include <cmath>
 
 
 
@@ -279,7 +280,7 @@ void CHyprlandLayout::calculateWorkspace(const int& ws) {
     //Layout commit is done externally (in either calculateWorkspace or layoutMessage)
 }
 
-void CHyprlandLayout::hyprlandLayoutWindowDimensions(const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t serial)
+void CHyprlandLayout::hyprlandLayoutWindowDimensions(const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height,uint32_t serial)
 {
   //TODO: handle reject-float
 
@@ -312,12 +313,12 @@ void CHyprlandLayout::hyprlandLayoutCommit(const char *layout_name, const char *
 		nd.requestDone = false;
 		nd.requestSerial = 0;
     nd.requestIdx = 0;
+    nd.userModified = 0;
 		applyNodeDataToWindow(&nd);
     if (WSDATA == nullptr) {
       WSDATA = getLayoutWorkspaceData(nd.workspaceID);
       WSDATA->layoutConfigData = config_data;
     }
-
 	}
         
 	if (m_vRemovedWindowVector != Vector2D(0.f, 0.f)) {
@@ -421,6 +422,7 @@ void CHyprlandLayout::resizeActiveWindow(const Vector2D& pixResize, CWindow* pWi
 
     const auto PWINDOW = pWindow ? pWindow : g_pCompositor->m_pLastWindow;
 
+
     if (!g_pCompositor->windowValidMapped(PWINDOW))
         return;
 
@@ -432,20 +434,37 @@ void CHyprlandLayout::resizeActiveWindow(const Vector2D& pixResize, CWindow* pWi
         return;
     }
 
-  
-    PNODE->size.x += pixResize.x;
-    PNODE->size.y += pixResize.y;
-    PNODE->userModified = true;
-    recalculateMonitor(pWindow->m_iMonitorID);
-  //printf("PIXRESIZE X %f Y %f CORNER %d\n", pixResize.x, pixResize.y);
-  //If you try to resize a window it just forces it to float. Do the same thing here
-  /*
-  const auto PNODE = getNodeFromWindow(pWindow);
-  pWindow->m_bIsFloating = true;
-  m_lMasterNodesData.remove(*PNODE);
-  g_pLayoutManager->getCurrentLayout()->onWindowCreatedFloating(pWindow);
-  recalculateMonitor(pWindow->m_iMonitorID);
-  */
+    Vector2D newSize = Vector2D(PNODE->size.x, PNODE->size.y);
+    Vector2D newPos = Vector2D(PNODE->position.x, PNODE->position.y);
+
+    //Thanks to hy3 for showing me how to get the 'drag side'
+		if (g_pInputManager->currentlyDraggedWindow == PWINDOW) {
+			auto mouse = g_pInputManager->getMouseCoordsInternal();
+			auto mouse_offset = mouse - PWINDOW->m_vPosition;
+      bool xleft = mouse_offset.x < PWINDOW->m_vSize.x / 2;
+      bool ytop = mouse_offset.y > PWINDOW->m_vSize.y / 2;
+      if (xleft) {
+        newPos.x += pixResize.x;
+        newSize.x -= pixResize.x;
+      } else {
+        newSize.x += pixResize.x;
+      }
+
+      if (ytop) {
+        newPos.y += pixResize.y;
+        newSize.y -= pixResize.y;
+      } else {
+        newSize.y += pixResize.y;
+      }
+    } else {
+      newSize.x += pixResize.x;
+      newSize.y += pixResize.y;
+    }
+
+    
+      recalculateMonitor(pWindow->m_iMonitorID, false);
+      g_pHyprlandLayoutProtocolManager->sendLayoutDemandResize(m_pWLResource, PNODE->windowID.c_str(), (int32_t)(newPos.x - PNODE->position.x), (int32_t)(newPos.y - PNODE->position.y), (int32_t)(newSize.x - PNODE->size.x), (int32_t)(newSize.y - PNODE->size.y), m_iLastLayoutSerial);
+      g_pHyprlandLayoutProtocolManager->sendLayoutDemandCommit(m_pWLResource, m_iLastLayoutSerial); 
 }
 
 
@@ -620,6 +639,14 @@ void CHyprlandLayout::prepareNewFocus(CWindow* pWindow, bool inheritFullscreen) 
     if (!pWindow)
         return;
 
+  if (pWindow && !pWindow->m_bIsFloating) { //leave floating windows alone
+    for (auto it = g_pCompositor->m_vWindows.begin(); it != g_pCompositor->m_vWindows.end(); ++it) {
+      if (it->get() == pWindow) {
+        std::rotate(it, it + 1, g_pCompositor->m_vWindows.end());
+        break;
+      }
+    }
+  }
     if (inheritFullscreen)
         g_pCompositor->setWindowFullscreen(pWindow, true, g_pCompositor->getWorkspaceByID(pWindow->m_iWorkspaceID)->m_efFullscreenMode);
 }
@@ -829,6 +856,30 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
     return 0;
 }
 
+void CHyprlandLayout::moveCWindowToEnd(CWindow *win) {
+  if (win && !win->m_bIsFloating) { //leave floating windows alone
+    for (auto it = g_pCompositor->m_vWindows.begin(); it != g_pCompositor->m_vWindows.end(); ++it) {
+      if (it->get() == win) {
+        std::rotate(it, it + 1, g_pCompositor->m_vWindows.end());
+        break;
+      }
+    }
+  }
+
+}
+void CHyprlandLayout::onWindowFocusChange(CWindow *pNewFocus) {
+  //Hax. Anytime a tiled window gets focus, just move it to the rear of the compositor's window list.
+  //Tiled windows are rendered such that the last one rendered it 'on top', and we want the last focused
+  //window on a workspace to remain on top even when it loses focus.
+  //This is for layouts that created overlapping windows (like monocole)
+  //We can't just call moveWindowToTop() since that has other side effects (I think)
+  //So just twiddle the (public) window list...
+
+  IHyprLayout::onWindowFocusChange(pNewFocus);
+  moveCWindowToEnd(pNewFocus);
+}
+
+
 void CHyprlandLayout::replaceWindowDataWith(CWindow* from, CWindow* to) {
     const auto PNODE = getNodeFromWindow(from);
 
@@ -847,9 +898,13 @@ void CHyprlandLayout::onEnable() {
             continue;
 
         onWindowCreatedTiling(w.get());
+        if (g_pCompositor->m_pLastWindow == w.get()) {
+          moveCWindowToEnd(w.get());
+        }
     }
 }
 
 void CHyprlandLayout::onDisable() {
     m_lHyprlandLayoutNodesData.clear();
+
 }

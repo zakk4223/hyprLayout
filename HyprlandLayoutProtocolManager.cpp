@@ -1,5 +1,5 @@
 #include "HyprlandLayoutProtocolManager.hpp"
-#include <src/Compositor.hpp>
+#include <hyprland/src/Compositor.hpp>
 #include "hyprland-layout-v1-protocol.h"
 
 
@@ -129,6 +129,11 @@ void CHyprlandLayoutProtocolManager::displayDestroy() {
 	wl_global_destroy(m_pGlobal);
 }
 
+
+void CHyprlandLayoutProtocolManager::sendLayoutDemandResize(wl_resource *resource, const char *window_id, int32_t dx, int32_t dy, int32_t dwidth, int32_t dheight, uint32_t serial) {
+
+  hyprland_layout_v1_send_layout_demand_resize(resource, window_id, dx, dy, dwidth, dheight, serial);
+}
 
 void CHyprlandLayoutProtocolManager::sendLayoutDemand(wl_resource *resource, uint32_t usable_width, uint32_t usable_height, int32_t workspace,uint32_t window_count, uint32_t serial) {
 		hyprland_layout_v1_send_layout_demand(resource, usable_width, usable_height, workspace, window_count, serial);

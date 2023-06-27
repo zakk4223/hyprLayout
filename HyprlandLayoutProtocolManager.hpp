@@ -1,7 +1,7 @@
 #pragma once
 #define WLR_USE_UNSTABLE
 #include "globals.hpp"
-#include <src/defines.hpp>
+#include <hyprland/src/defines.hpp>
 #include "hyprlandLayout.hpp"
 
 
@@ -21,6 +21,7 @@ class CHyprlandLayoutProtocolManager {
 		void sendUserCommand(wl_resource *resource, const char *command, uint32_t serial);
     void sendLayoutDemandConfig(wl_resource *resource, const char *config_data, uint32_t serial);
     void sendLayoutDemandCommit(wl_resource *resource, uint32_t serial);
+    void sendLayoutDemandResize(wl_resource *resource, const char *window_id, int32_t dx, int32_t dy, int32_t dwidth, int32_t dheight, uint32_t serial);
 		void removeLayout(CHyprlandLayout *rmLayout); 
     void workspaceDestroyed(int workspace);
 

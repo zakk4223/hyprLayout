@@ -4,7 +4,7 @@
 
 #include "globals.hpp"
 #include "HyprlandLayoutProtocolManager.hpp"
-#include <src/layout/IHyprLayout.hpp>
+#include <hyprland/src/layout/IHyprLayout.hpp>
 #include <vector>
 #include <list>
 #include <deque>
@@ -65,6 +65,7 @@ class CHyprlandLayout : public IHyprLayout {
 
     virtual void                     onEnable();
     virtual void                     onDisable();
+    virtual void                     onWindowFocusChange(CWindow *);
     void 			     hyprlandLayoutWindowDimensions(const char *window_id, uint32_t window_index, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t serial);
     void			     hyprlandLayoutCommit(const char *layout_name, const char *config_data, uint32_t serial);
     void           workspaceDestroyed(const int& ws);
@@ -80,6 +81,7 @@ class CHyprlandLayout : public IHyprLayout {
     wl_resource                     *m_pWLResource;
     Vector2D 			   m_vRemovedWindowVector;
     uint32_t         m_iLastLayoutSerial = 0;
+    SHyprlandLayoutNodeData *m_pLastTiledWindowNodeData;
     
 
     bool                              m_bForceWarps = false;
@@ -96,6 +98,7 @@ class CHyprlandLayout : public IHyprLayout {
      SHyprlandLayoutNodeData*         getMasterNodeOnWorkspace(const int& ws);
     bool                              prepareLoseFocus(CWindow*);
     void                              prepareNewFocus(CWindow*, bool inherit_fullscreen);
+    void                              moveCWindowToEnd(CWindow *win);
 
     friend struct SHyprlandLayoutNodeData;
     friend struct SHyprlandLayoutWorkspaceData;

@@ -107,6 +107,18 @@
 
 
 
+    <event name="layout_demand_resize">
+      <description summary="Resize event data">
+        If a user resizes a window, this event is sent after the window info. The window info geometry contains the current state of the window. The resize info contains the x,y,w,h deltas. The layout can ignore the request or adjust the window(s) accordingly"
+      </description>
+      <arg name="window_id" type="string" summary="Window being resized"/>
+      <arg name="dx" type="int" summary="origin x delta"/>
+      <arg name="dy" type="int" summary="origin y delta"/>
+      <arg name="dwidth" type="int" summary="size width delta"/>
+      <arg name="dheight" type="int" summary="size height delta"/>
+      <arg name="serial" type="uint" summary="serial of layout demand"/>
+    </event>
+      
     <request name="push_window_dimensions">
       <description summary="Send new coordinate/size for a window">
         Inform the server of the new proposed coordinates for the window with id window_id.

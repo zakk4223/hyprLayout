@@ -4,9 +4,9 @@
 
 WAYLAND_SCANNER=$(shell pkg-config --variable=wayland_scanner wayland-scanner)
 
-CXXFLAGS=-shared -Wall -fPIC --no-gnu-unique -I "${HYPRLAND_HEADERS}" -I "/usr/include/pixman-1" -I "/usr/include/libdrm" -std=c++23 
+CXXFLAGS=-g -shared -Wall -fPIC --no-gnu-unique `pkg-config --cflags  pixman-1 libdrm hyprland`-std=c++23 
 
-OBJS=hyprlandLayout.o HyprlandLayoutProtocolManager.o hyprland-layout-v1-protocol.o main.o
+OBJS=hyprlandLayout.o HyprlandLayoutProtocolManager.o focusHooks.o hyprland-layout-v1-protocol.o main.o
 
 hyprland-layout-v1-protocol.h: protocol/hyprland-layout-v1.xml
 	$(WAYLAND_SCANNER) server-header protocol/hyprland-layout-v1.xml $@

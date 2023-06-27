@@ -52,6 +52,7 @@ class LayoutRequestBase(object):
         self.window_count = window_count
         self.serial = serial
         self.windows = []
+        self.windows_by_id = {}
         self.layout_config = self.default_config() 
         self.wayland_layout = layout_obj
 
@@ -78,6 +79,9 @@ class LayoutRequestBase(object):
             self.layout_config = self.default_config()
 
 
+    def layout_demand_resize(self, window_id, dx, dy, dw, dh):
+        self.commit_new_layout()
+
     def layout_demand_committed(self):
         self.commit_new_layout()
 
@@ -86,6 +90,16 @@ class LayoutRequestBase(object):
         lw = LayoutWindow(window_id, x, y, width, height, is_master, is_active,user_modified)
         lw.window_idx = len(self.windows)
         self.windows.append(lw)
+        self.windows_by_id[window_id] = lw
+
+def layout_handle_layout_demand_resize(layout, window_id, dx, dy, dw, dh, serial):
+    global proxy_map
+    global loaded_layouts
+    layout_name = proxy_map[layout]
+    if not layout_name: return
+    req_obj = loaded_layouts[layout_name]['requests'][serial]
+    if not req_obj: return
+    req_obj.layout_demand_resize(window_id, dx, dy, dw, dh)
 
 def layout_handle_user_command(layout, command, serial):
     global proxy_map
@@ -132,7 +146,6 @@ def layout_handle_layout_demand(layout, usable_w, usable_h, workspace_id, window
     global proxy_map
     global loaded_layouts
 
-    print("LAYOUT DEMAND")
     layout_name = proxy_map[layout]
     if not layout_name: return
     reload_module_if_changed(layout_name)
@@ -203,6 +216,7 @@ def announce_layout_module(module_name):
     hypr_layout.dispatcher["layout_demand_commit"] = layout_handle_layout_demand_commit
     hypr_layout.dispatcher["layout_demand_config"] = layout_handle_layout_demand_config
     hypr_layout.dispatcher["user_command"] = layout_handle_user_command
+    hypr_layout.dispatcher["layout_demand_resize"] = layout_handle_layout_demand_resize
 
 def load_module_dir(dir_path):
     global loaded_layouts
