@@ -19,6 +19,10 @@ hyprland-layout-v1-protocol.o: hyprland-layout-v1-protocol.h
 
 protocol: hyprland-layout-v1-protocol.o
 
+python_protocol: 
+	python3 -m pywayland.scanner -i /usr/share/wayland/wayland.xml protocol/hyprland-layout-v1.xml -o ./pyprotocol
+
+
 
 all: protocol $(OBJS) 
 	g++ -shared -fPIC -o hyprlandLayoutPlugin.so -g $(OBJS) 

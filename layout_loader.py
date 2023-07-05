@@ -5,18 +5,18 @@ import importlib.util
 import os
 import sys
 import json
+import io
+
 from pywayland.client import Display
+
 try:
-    from pywayland.protocol.hyprland_layout_v1 import HyprlandLayoutManagerV1
+    import pyprotocol.hyprland_layout_v1
+    from pyprotocol.hyprland_layout_v1 import HyprlandLayoutManagerV1
 except:
-    hyprland_layout_help = """
-    Your pywayland package does not have bindings for hyprland-layout-v1.
-    You can generate the bindings with the following command:
-         python3 -m pywayland.scanner -i /usr/share/wayland/wayland.xml hyprland-layout-v1.xml
-    It is recommended to use a virtual environment to avoid modifying your
-    system-wide python installation, See: https://docs.python.org/3/library/venv.html
+    protocol_info = """
+    Could not import hyprland_layout_v1 protocol binding. See the README and Makefile for information on how to do this.
     """
-    print(hyprland_layout_help)
+    print(protocol_info)
     quit()
 
 
@@ -231,6 +231,7 @@ def load_module_dir(dir_path):
 
 
 
+
 display = Display()
 display.connect()
 
@@ -241,13 +242,10 @@ registry.dispatcher["global_remove"] = registry_handle_global_remove
 display.dispatch(block=True)
 display.roundtrip()
 
+
 if layout_manager is None:
     print("No layout_manager, aborting")
     quit()
-
-#for lname, linfo in loaded_layouts.items():
-#    announce_layout_module(lname)
-
 
 load_module_dir(sys.argv[1])
 
