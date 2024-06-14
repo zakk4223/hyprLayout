@@ -152,7 +152,7 @@ void CHyprlandLayoutProtocolManager::sendLayoutDemandCommit(wl_resource *resourc
   hyprland_layout_v1_send_layout_demand_commit(resource, serial);
 }
 
-void CHyprlandLayoutProtocolManager::sendWindowInfo(wl_resource *resource, const char *window_id, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t is_master, uint32_t is_active, uint32_t user_modified, uint32_t serial)
+void CHyprlandLayoutProtocolManager::sendWindowInfo(wl_resource *resource, const char *window_id, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t is_master, uint32_t is_active, uint32_t user_modified, const char *tags, uint32_t serial)
 {
-  hyprland_layout_v1_send_window_info(resource, window_id, x, y, width, height, is_master, is_active, user_modified, serial);
+  hyprland_layout_v1_send_window_info(resource, window_id, x, y, width, height, is_master, is_active, user_modified, tags, serial);
 }

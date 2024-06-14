@@ -3,4 +3,5 @@
 *-protocol.h
 *.so
 __pycache__/
+*.user
 

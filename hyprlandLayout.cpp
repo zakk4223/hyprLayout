@@ -1,6 +1,8 @@
 #include "hyprlandLayout.hpp"
 #include "HyprlandLayoutProtocolManager.hpp"
 #include <hyprland/src/Compositor.hpp>
+#include <hyprland/src/render/decorations/CHyprGroupBarDecoration.hpp>
+#include <numeric>
 #include <ranges>
 #include <cmath>
 
@@ -23,7 +25,7 @@ SHyprlandLayoutNodeData* CHyprlandLayout::getNodeFromWindowID(std::string const 
     return nullptr;
 }
 
-SHyprlandLayoutNodeData* CHyprlandLayout::getNodeFromWindow(CWindow* pWindow) {
+SHyprlandLayoutNodeData* CHyprlandLayout::getNodeFromWindow(PHLWINDOW pWindow) {
     for (auto& nd : m_lHyprlandLayoutNodesData) {
         if (nd.pWindow == pWindow)
             return &nd;
@@ -49,7 +51,6 @@ int CHyprlandLayout::getMastersOnWorkspace(const int& ws) {
         if (n.workspaceID == ws && n.isMaster)
             no++;
     }
-
     return no;
 }
 
@@ -87,7 +88,29 @@ std::string CHyprlandLayout::getLayoutName() {
     return m_sHyprlandLayoutNamespace; 
 }
 
-void CHyprlandLayout::onWindowCreatedTiling(CWindow* pWindow) {
+void CHyprlandLayout::moveWindowTo(PHLWINDOW pWindow, const std::string& dir, bool silent) {
+    if (!isDirection(dir))
+        return;
+
+    const auto PWINDOW2 = g_pCompositor->getWindowInDirection(pWindow, dir[0]);
+		if (pWindow->m_pWorkspace != PWINDOW2->m_pWorkspace) {
+ 		  // if different monitors, send to monitor
+		  onWindowRemovedTiling(pWindow);
+		  pWindow->moveToWorkspace(PWINDOW2->m_pWorkspace);
+		  if (!silent) {
+		    const auto pMonitor = g_pCompositor->getMonitorFromID(pWindow->m_iMonitorID);
+			  g_pCompositor->setActiveMonitor(pMonitor);
+		  }
+		  onWindowCreatedTiling(pWindow);
+    } else {
+        // if same monitor, switch windows
+        switchWindows(pWindow, PWINDOW2);
+		    if (silent)
+		      g_pCompositor->focusWindow(PWINDOW2);
+		}
+}
+
+void CHyprlandLayout::onWindowCreatedTiling(PHLWINDOW pWindow, eDirection direction) {
     m_vRemovedWindowVector = Vector2D(0.f, 0.f);
     if (pWindow->m_bIsFloating) {
         return;
@@ -101,11 +124,10 @@ void CHyprlandLayout::onWindowCreatedTiling(CWindow* pWindow) {
     //const auto         PNODE = *PNEWTOP ? &m_lMasterNodesData.emplace_front() : &m_lMasterNodesData.emplace_back();
     const auto PNODE = &m_lHyprlandLayoutNodesData.emplace_front();
 
-    PNODE->workspaceID = pWindow->m_iWorkspaceID;
+    PNODE->workspaceID = pWindow->workspaceID();
     PNODE->pWindow     = pWindow;
-    //GCC 12 doesn't support std::format, sigh
     char windowSTR[20];
-    snprintf(windowSTR, sizeof(windowSTR), "%p", pWindow);
+    snprintf(windowSTR, sizeof(windowSTR), "%p", pWindow.get());
     PNODE->windowID = windowSTR;
 
 
@@ -114,16 +136,31 @@ void CHyprlandLayout::onWindowCreatedTiling(CWindow* pWindow) {
 
     const auto         WINDOWSONWORKSPACE = getNodesOnWorkspace(PNODE->workspaceID);
 
-    auto               OPENINGON = isWindowTiled(g_pCompositor->m_pLastWindow) && g_pCompositor->m_pLastWindow->m_iWorkspaceID == pWindow->m_iWorkspaceID ?
-                      getNodeFromWindow(g_pCompositor->m_pLastWindow) :
-                      getNodeFromWindow(g_pCompositor->m_pLastWindow); 
+    auto               OPENINGON = getNodeFromWindow(g_pCompositor->m_pLastWindow.lock());
 
-    if (OPENINGON && OPENINGON->pWindow->m_sGroupData.pNextWindow && OPENINGON != PNODE && !g_pKeybindManager->m_bGroupsLocked) {
+		const auto MOUSECOORDS = g_pInputManager->getMouseCoordsInternal();
+
+
+		if (g_pInputManager->m_bWasDraggingWindow && OPENINGON) {
+			if (OPENINGON->pWindow->checkInputOnDecos(INPUT_TYPE_DRAG_END, MOUSECOORDS, pWindow))
+				return;
+		}
+
+    if (OPENINGON && OPENINGON != PNODE && OPENINGON->pWindow->m_sGroupData.pNextWindow // target is group
+        && pWindow->canBeGroupedInto(OPENINGON->pWindow.lock())) {
+
+        if (!pWindow->m_sGroupData.pNextWindow)
+            pWindow->m_dWindowDecorations.emplace_back(std::make_unique<CHyprGroupBarDecoration>(pWindow));
+
         m_lHyprlandLayoutNodesData.remove(*PNODE);
 
-        OPENINGON->pWindow->insertWindowToGroup(pWindow);
+        static const auto* USECURRPOS = (Hyprlang::INT * const*)g_pConfigManager->getConfigValuePtr("group:insert_after_current");
+        (*USECURRPOS ? OPENINGON->pWindow : OPENINGON->pWindow->getGroupTail())->insertWindowToGroup(pWindow);
 
-        pWindow->m_dWindowDecorations.emplace_back(std::make_unique<CHyprGroupBarDecoration>(pWindow));
+        OPENINGON->pWindow->setGroupCurrent(pWindow);
+        pWindow->applyGroupRules();
+        pWindow->updateWindowDecos();
+        recalculateWindow(pWindow);
 
         return;
     }
@@ -150,13 +187,6 @@ void CHyprlandLayout::onWindowCreatedTiling(CWindow* pWindow) {
         }
     }
 
-    const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(pWindow->m_iWorkspaceID);
-
-    if (PWORKSPACE->m_bHasFullscreenWindow) {
-        const auto PFULLWINDOW = g_pCompositor->getFullscreenWindowOnWorkspace(PWORKSPACE->m_iID);
-        g_pCompositor->setWindowFullscreen(PFULLWINDOW, false, FULLSCREEN_FULL);
-    }
-
     // recalc
     //TODO: handle new is master style config. Also handle add to master etc
     for (auto& nd : m_lHyprlandLayoutNodesData) {
@@ -169,7 +199,7 @@ void CHyprlandLayout::onWindowCreatedTiling(CWindow* pWindow) {
     recalculateMonitor(pWindow->m_iMonitorID);
 }
 
-void CHyprlandLayout::onWindowRemovedTiling(CWindow* pWindow) {
+void CHyprlandLayout::onWindowRemovedTiling(PHLWINDOW pWindow) {
     const auto PNODE = getNodeFromWindow(pWindow);
 
     if (!PNODE)
@@ -179,9 +209,7 @@ void CHyprlandLayout::onWindowRemovedTiling(CWindow* pWindow) {
     const auto MASTERSLEFT = getMastersOnWorkspace(WORKSPACEID);
 
     m_vRemovedWindowVector = Vector2D(0.f, 0.f);
-    pWindow->m_sSpecialRenderData.rounding = true;
-    pWindow->m_sSpecialRenderData.border   = true;
-    pWindow->m_sSpecialRenderData.decorate = true;
+		pWindow->updateSpecialRenderData();
 
     if (PNODE->isMaster && MASTERSLEFT <= 1) {
       for (auto& nd : m_lHyprlandLayoutNodesData) {
@@ -196,7 +224,7 @@ void CHyprlandLayout::onWindowRemovedTiling(CWindow* pWindow) {
 
     m_lHyprlandLayoutNodesData.remove(*PNODE);
 
-    m_vRemovedWindowVector = pWindow->m_vRealPosition.goalv() + pWindow->m_vRealSize.goalv() / 2.f;
+    m_vRemovedWindowVector = pWindow->m_vRealPosition.goal() + pWindow->m_vRealSize.goal() / 2.f;
 
 
 
@@ -219,8 +247,8 @@ void CHyprlandLayout::recalculateMonitor(const int &monid, bool commit) {
 
     g_pHyprRenderer->damageMonitor(PMONITOR);
 
-    if (PMONITOR->specialWorkspaceID) {
-        calculateWorkspace(PMONITOR->specialWorkspaceID);
+    if (PMONITOR->activeSpecialWorkspace) {
+        calculateWorkspace(PMONITOR->activeSpecialWorkspace);
     }
 
     if (PWORKSPACE->m_bHasFullscreenWindow) {
@@ -244,37 +272,38 @@ void CHyprlandLayout::recalculateMonitor(const int &monid, bool commit) {
     }
 
     // calc the WS
-    calculateWorkspace(PWORKSPACE->m_iID);
+    calculateWorkspace(PWORKSPACE);
     if (commit) {
       g_pHyprlandLayoutProtocolManager->sendLayoutDemandCommit(m_pWLResource, m_iLastLayoutSerial); 
     }
 }
 
-void CHyprlandLayout::calculateWorkspace(const int& ws) {
-    const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(ws);
-    static uint32_t use_serial = 1;
+void CHyprlandLayout::calculateWorkspace(PHLWORKSPACE pWorkspace) {
 
-    if (!PWORKSPACE)
+    if (!pWorkspace)
         return;
 
-    const auto         PWORKSPACEDATA = getLayoutWorkspaceData(ws);
-    const auto         PMONITOR = g_pCompositor->getMonitorFromID(PWORKSPACE->m_iMonitorID);
-    const uint32_t num_nodes = getNodesOnWorkspace(PWORKSPACE->m_iID);
+    const auto         PWORKSPACEDATA = getLayoutWorkspaceData(pWorkspace);
+    const auto         PMONITOR = g_pCompositor->getMonitorFromID(pWorkspace->m_iMonitorID);
+    const uint32_t num_nodes = getNodesOnWorkspace(pWorkspace->m_iID);
 
 
 
-     g_pHyprlandLayoutProtocolManager->sendLayoutDemand(m_pWLResource, PMONITOR->vecSize.x - PMONITOR->vecReservedBottomRight.x - PMONITOR->vecReservedTopLeft.x, PMONITOR->vecSize.y - PMONITOR->vecReservedBottomRight.y - PMONITOR->vecReservedTopLeft.y, ws,num_nodes, m_iLastLayoutSerial);
+     g_pHyprlandLayoutProtocolManager->sendLayoutDemand(m_pWLResource, PMONITOR->vecSize.x - PMONITOR->vecReservedBottomRight.x - PMONITOR->vecReservedTopLeft.x, PMONITOR->vecSize.y - PMONITOR->vecReservedBottomRight.y - PMONITOR->vecReservedTopLeft.y, pWorkspace->m_iID,num_nodes, m_iLastLayoutSerial);
     if (PWORKSPACEDATA) {
       g_pHyprlandLayoutProtocolManager->sendLayoutDemandConfig(m_pWLResource, PWORKSPACEDATA->layoutConfigData.c_str(), m_iLastLayoutSerial); 
     }
     //record serial so we know if we're done
 
     for (auto& nd : m_lHyprlandLayoutNodesData) {
-	    if (nd.workspaceID != PWORKSPACE->m_iID)
+	    if (nd.workspaceID != pWorkspace->m_iID)
 		    continue;
 	    nd.requestSerial = m_iLastLayoutSerial;
 	    nd.requestDone = false;
-      g_pHyprlandLayoutProtocolManager->sendWindowInfo(m_pWLResource, nd.windowID.c_str(), (int32_t)nd.position.x, (int32_t)nd.position.y, (int32_t)nd.size.x, (int32_t)nd.size.y, nd.isMaster, g_pCompositor->isWindowActive(nd.pWindow), nd.userModified, m_iLastLayoutSerial);
+			Debug::log(LOG, "Sending window info ID: {} X: {} Y: {} W: {} H: {}, MASTER: {} ACTIVE: {}, MOD: {}, SERIAL: {}", nd.windowID.c_str(), nd.position.x, nd.position.y, nd.size.x, nd.size.y, nd.isMaster, g_pCompositor->isWindowActive(nd.pWindow.lock()), nd.userModified, m_iLastLayoutSerial);
+			const auto tags = nd.pWindow.lock()->m_tags.getTags();
+			std::string tagStr = std::accumulate(tags.begin(), tags.end(), std::string(), [](const std::string& a, const std::string& b) { return a.empty() ? b : a + ", " + b; });
+      g_pHyprlandLayoutProtocolManager->sendWindowInfo(m_pWLResource, nd.windowID.c_str(), (int32_t)nd.position.x, (int32_t)nd.position.y, (int32_t)nd.size.x, (int32_t)nd.size.y, nd.isMaster, g_pCompositor->isWindowActive(nd.pWindow.lock()), nd.userModified, tagStr.c_str(), m_iLastLayoutSerial);
     }
 
     //Layout commit is done externally (in either calculateWorkspace or layoutMessage)
@@ -286,6 +315,9 @@ void CHyprlandLayout::hyprlandLayoutWindowDimensions(const char *window_id, uint
 
   std::string windowSTR = window_id;
   auto nd = getNodeFromWindowID(windowSTR);
+  if (!nd) {
+    return;
+  }
 
 		const auto PMONITOR = g_pCompositor->getMonitorFromID(nd->pWindow->m_iMonitorID);
 		nd->position = PMONITOR->vecPosition  + PMONITOR->vecReservedTopLeft + Vector2D(x+0.0f, y+0.0f);
@@ -296,8 +328,6 @@ void CHyprlandLayout::hyprlandLayoutWindowDimensions(const char *window_id, uint
 
 void CHyprlandLayout::hyprlandLayoutCommit(const char *layout_name, const char *config_data, uint32_t serial) {
 
-	CMonitor *PMONITOR = nullptr;
-  int ws_id = 0;
   SHyprlandLayoutWorkspaceData* WSDATA = nullptr;
   //First sort the node data by the (possibly) new indices given to us from the layout client.
 
@@ -322,7 +352,7 @@ void CHyprlandLayout::hyprlandLayoutCommit(const char *layout_name, const char *
 	}
         
 	if (m_vRemovedWindowVector != Vector2D(0.f, 0.f)) {
-		const auto FOCUSCANDIDATE = g_pCompositor->vectorToWindowIdeal(m_vRemovedWindowVector);
+		const auto FOCUSCANDIDATE = g_pCompositor->vectorToWindowUnified(m_vRemovedWindowVector, FULL_EXTENTS | ALLOW_FLOATING);
 		if (FOCUSCANDIDATE) {
 			g_pCompositor->focusWindow(FOCUSCANDIDATE);
 		}
@@ -336,7 +366,7 @@ void CHyprlandLayout::applyNodeDataToWindow(SHyprlandLayoutNodeData* pNode) {
 
     if (g_pCompositor->isWorkspaceSpecial(pNode->workspaceID)) {
         for (auto& m : g_pCompositor->m_vMonitors) {
-            if (m->specialWorkspaceID == pNode->workspaceID) {
+            if (m->activeSpecialWorkspaceID() == pNode->workspaceID) {
                 PMONITOR = m.get();
                 break;
             }
@@ -346,7 +376,7 @@ void CHyprlandLayout::applyNodeDataToWindow(SHyprlandLayoutNodeData* pNode) {
     }
 
     if (!PMONITOR) {
-        Debug::log(ERR, "Orphaned Node %x (workspace ID: %i)!!", pNode, pNode->workspaceID);
+        Debug::log(ERR, "Orphaned Node {} (workspace ID: {})!!", static_cast<void *>(pNode), pNode->workspaceID);
         return;
     }
 
@@ -356,30 +386,34 @@ void CHyprlandLayout::applyNodeDataToWindow(SHyprlandLayoutNodeData* pNode) {
     const bool DISPLAYTOP    = STICKS(pNode->position.y, PMONITOR->vecPosition.y + PMONITOR->vecReservedTopLeft.y);
     const bool DISPLAYBOTTOM = STICKS(pNode->position.y + pNode->size.y, PMONITOR->vecPosition.y + PMONITOR->vecSize.y - PMONITOR->vecReservedBottomRight.y);
 
-    const auto PBORDERSIZE = &g_pConfigManager->getConfigValuePtr("general:border_size")->intValue;
-    const auto PGAPSIN     = &g_pConfigManager->getConfigValuePtr("general:gaps_in")->intValue;
-    const auto PGAPSOUT    = &g_pConfigManager->getConfigValuePtr("general:gaps_out")->intValue;
+    static auto* const PGAPSINDATA     = (Hyprlang::CUSTOMTYPE* const*)g_pConfigManager->getConfigValuePtr("general:gaps_in");
+    static auto* const PGAPSOUTDATA    = (Hyprlang::CUSTOMTYPE* const*)g_pConfigManager->getConfigValuePtr("general:gaps_out");
+    auto* const        PGAPSIN         = (CCssGapData*)(*PGAPSINDATA)->getData();
+    auto* const        PGAPSOUT        = (CCssGapData*)(*PGAPSOUTDATA)->getData();
+		static auto* const PANIMATE = (Hyprlang::INT* const*)g_pConfigManager->getConfigValuePtr("misc:animate_manual_resizes");
 
-    const auto PWINDOW = pNode->pWindow;
+    const auto PWINDOW = pNode->pWindow.lock();
+		const auto WORKSPACERULE = g_pConfigManager->getWorkspaceRuleFor(g_pCompositor->getWorkspaceByID(PWINDOW->workspaceID()));
 
-    if (!g_pCompositor->windowValidMapped(PWINDOW)) {
-        Debug::log(ERR, "Node %x holding invalid window %x!!", pNode, PWINDOW);
+		PWINDOW->updateSpecialRenderData();
+
+		auto gapsIn = WORKSPACERULE.gapsIn.value_or(*PGAPSIN);
+		auto gapsOut = WORKSPACERULE.gapsOut.value_or(*PGAPSOUT);
+
+    if (!validMapped(PWINDOW)) {
+        Debug::log(ERR, "Node {} holding invalid window {}!!", pNode, PWINDOW);
         return;
     }
 
     PWINDOW->m_vSize     = pNode->size;
     PWINDOW->m_vPosition = pNode->position;
 
-    auto calcPos  = PWINDOW->m_vPosition + Vector2D(*PBORDERSIZE, *PBORDERSIZE);
-    auto calcSize = PWINDOW->m_vSize - Vector2D(2 * *PBORDERSIZE, 2 * *PBORDERSIZE);
+    auto calcPos  = PWINDOW->m_vPosition;
+    auto calcSize = PWINDOW->m_vSize;
 
-    PWINDOW->m_sSpecialRenderData.rounding = true;
-    PWINDOW->m_sSpecialRenderData.border   = true;
-    PWINDOW->m_sSpecialRenderData.decorate = true;
+    const auto OFFSETTOPLEFT = Vector2D(DISPLAYLEFT ? gapsOut.left : gapsIn.left, DISPLAYTOP ? gapsOut.top : gapsIn.top);
 
-    const auto OFFSETTOPLEFT = Vector2D(DISPLAYLEFT ? *PGAPSOUT : *PGAPSIN, DISPLAYTOP ? *PGAPSOUT : *PGAPSIN);
-
-    const auto OFFSETBOTTOMRIGHT = Vector2D(DISPLAYRIGHT ? *PGAPSOUT : *PGAPSIN, DISPLAYBOTTOM ? *PGAPSOUT : *PGAPSIN);
+    const auto OFFSETBOTTOMRIGHT = Vector2D(DISPLAYRIGHT ? gapsOut.right : gapsIn.right, DISPLAYBOTTOM ? gapsOut.bottom : gapsIn.bottom);
 
     calcPos  = calcPos + OFFSETTOPLEFT;
     calcSize = calcSize - OFFSETTOPLEFT - OFFSETBOTTOMRIGHT;
@@ -396,13 +430,15 @@ void CHyprlandLayout::applyNodeDataToWindow(SHyprlandLayoutNodeData* pNode) {
 
         g_pXWaylandManager->setWindowSize(PWINDOW, calcSize * *PSCALEFACTOR);
     } else {*/
-        PWINDOW->m_vRealSize     = calcSize;
-        PWINDOW->m_vRealPosition = calcPos;
+				CBox wb = {calcPos, calcSize};
+				wb.round();
+        PWINDOW->m_vRealSize     = wb.size();
+        PWINDOW->m_vRealPosition = wb.pos();;
 
-        g_pXWaylandManager->setWindowSize(PWINDOW, calcSize);
+        g_pXWaylandManager->setWindowSize(PWINDOW, wb.size());
     //}
 
-    if (m_bForceWarps) {
+    if (m_bForceWarps && !**PANIMATE) {
         g_pHyprRenderer->damageWindow(PWINDOW);
 
         PWINDOW->m_vRealPosition.warp();
@@ -414,22 +450,22 @@ void CHyprlandLayout::applyNodeDataToWindow(SHyprlandLayoutNodeData* pNode) {
     PWINDOW->updateWindowDecos();
 }
 
-bool CHyprlandLayout::isWindowTiled(CWindow* pWindow) {
+bool CHyprlandLayout::isWindowTiled(PHLWINDOW pWindow) {
     return getNodeFromWindow(pWindow) != nullptr;
 }
 
-void CHyprlandLayout::resizeActiveWindow(const Vector2D& pixResize, CWindow* pWindow) {
+void CHyprlandLayout::resizeActiveWindow(const Vector2D& pixResize, eRectCorner corner, PHLWINDOW pWindow) {
 
-    const auto PWINDOW = pWindow ? pWindow : g_pCompositor->m_pLastWindow;
+    const auto PWINDOW = pWindow ? pWindow : g_pCompositor->m_pLastWindow.lock();
 
 
-    if (!g_pCompositor->windowValidMapped(PWINDOW))
+    if (!validMapped(PWINDOW))
         return;
 
     const auto PNODE = getNodeFromWindow(PWINDOW);
 
     if (!PNODE) {
-        PWINDOW->m_vRealSize = Vector2D(std::max((PWINDOW->m_vRealSize.goalv() + pixResize).x, 20.0), std::max((PWINDOW->m_vRealSize.goalv() + pixResize).y, 20.0));
+        PWINDOW->m_vRealSize = Vector2D(std::max((PWINDOW->m_vRealSize.goal() + pixResize).x, 20.0), std::max((PWINDOW->m_vRealSize.goal() + pixResize).y, 20.0));
         PWINDOW->updateWindowDecos();
         return;
     }
@@ -468,15 +504,15 @@ void CHyprlandLayout::resizeActiveWindow(const Vector2D& pixResize, CWindow* pWi
 }
 
 
-void CHyprlandLayout::fullscreenRequestForWindow(CWindow* pWindow, eFullscreenMode fullscreenMode, bool on) {
-    if (!g_pCompositor->windowValidMapped(pWindow))
+void CHyprlandLayout::fullscreenRequestForWindow(PHLWINDOW pWindow, eFullscreenMode fullscreenMode, bool on) {
+    if (!validMapped(pWindow))
         return;
 
-    if (on == pWindow->m_bIsFullscreen || g_pCompositor->isWorkspaceSpecial(pWindow->m_iWorkspaceID))
+    if (on == pWindow->m_bIsFullscreen || g_pCompositor->isWorkspaceSpecial(pWindow->workspaceID()))
         return; // ignore
 
     const auto PMONITOR   = g_pCompositor->getMonitorFromID(pWindow->m_iMonitorID);
-    const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(pWindow->m_iWorkspaceID);
+    const auto PWORKSPACE = g_pCompositor->getWorkspaceByID(pWindow->workspaceID());
 
     if (PWORKSPACE->m_bHasFullscreenWindow && on) {
         // if the window wants to be fullscreen but there already is one,
@@ -488,6 +524,8 @@ void CHyprlandLayout::fullscreenRequestForWindow(CWindow* pWindow, eFullscreenMo
     pWindow->m_bIsFullscreen           = on;
     PWORKSPACE->m_bHasFullscreenWindow = !PWORKSPACE->m_bHasFullscreenWindow;
 
+		pWindow->updateDynamicRules();
+		pWindow->updateWindowDecos();
     g_pEventManager->postEvent(SHyprIPCEvent{"fullscreen", std::to_string((int)on)});
     EMIT_HOOK_EVENT("fullscreen", pWindow);
 
@@ -512,10 +550,10 @@ void CHyprlandLayout::fullscreenRequestForWindow(CWindow* pWindow, eFullscreenMo
 
         // save position and size if floating
         if (pWindow->m_bIsFloating) {
-            pWindow->m_vLastFloatingSize     = pWindow->m_vRealSize.goalv();
-            pWindow->m_vLastFloatingPosition = pWindow->m_vRealPosition.goalv();
-            pWindow->m_vPosition             = pWindow->m_vRealPosition.goalv();
-            pWindow->m_vSize                 = pWindow->m_vRealSize.goalv();
+            pWindow->m_vLastFloatingSize     = pWindow->m_vRealSize.goal();
+            pWindow->m_vLastFloatingPosition = pWindow->m_vRealPosition.goal();
+            pWindow->m_vPosition             = pWindow->m_vRealPosition.goal();
+            pWindow->m_vSize                 = pWindow->m_vRealSize.goal();
         }
 
         // apply new pos and size being monitors' box
@@ -531,7 +569,7 @@ void CHyprlandLayout::fullscreenRequestForWindow(CWindow* pWindow, eFullscreenMo
             fakeNode.pWindow     = pWindow;
             fakeNode.position    = PMONITOR->vecPosition + PMONITOR->vecReservedTopLeft;
             fakeNode.size        = PMONITOR->vecSize - PMONITOR->vecReservedTopLeft - PMONITOR->vecReservedBottomRight;
-            fakeNode.workspaceID = pWindow->m_iWorkspaceID;
+            fakeNode.workspaceID = pWindow->workspaceID();
             pWindow->m_vPosition = fakeNode.position;
             pWindow->m_vSize     = fakeNode.size;
 
@@ -541,14 +579,14 @@ void CHyprlandLayout::fullscreenRequestForWindow(CWindow* pWindow, eFullscreenMo
 
     g_pCompositor->updateWindowAnimatedDecorationValues(pWindow);
 
-    g_pXWaylandManager->setWindowSize(pWindow, pWindow->m_vRealSize.goalv());
+    g_pXWaylandManager->setWindowSize(pWindow, pWindow->m_vRealSize.goal());
 
-    g_pCompositor->moveWindowToTop(pWindow);
+    g_pCompositor->changeWindowZOrder(pWindow, true);
 
-    recalculateMonitor(PMONITOR->ID);
+	recalculateMonitor(PMONITOR->ID);
 }
 
-void CHyprlandLayout::recalculateWindow(CWindow* pWindow) {
+void CHyprlandLayout::recalculateWindow(PHLWINDOW pWindow) {
     const auto PNODE = getNodeFromWindow(pWindow);
 
     if (!PNODE)
@@ -557,7 +595,7 @@ void CHyprlandLayout::recalculateWindow(CWindow* pWindow) {
     recalculateMonitor(pWindow->m_iMonitorID);
 }
 
-SWindowRenderLayoutHints CHyprlandLayout::requestRenderHints(CWindow* pWindow) {
+SWindowRenderLayoutHints CHyprlandLayout::requestRenderHints(PHLWINDOW pWindow) {
     // window should be valid, insallah
 
     SWindowRenderLayoutHints hints;
@@ -565,7 +603,7 @@ SWindowRenderLayoutHints CHyprlandLayout::requestRenderHints(CWindow* pWindow) {
     return hints; // master doesnt have any hints
 }
 
-void CHyprlandLayout::switchWindows(CWindow* pWindow, CWindow* pWindow2) {
+void CHyprlandLayout::switchWindows(PHLWINDOW pWindow, PHLWINDOW pWindow2) {
     // windows should be valid, insallah
 
     const auto PNODE  = getNodeFromWindow(pWindow);
@@ -578,7 +616,7 @@ void CHyprlandLayout::switchWindows(CWindow* pWindow, CWindow* pWindow2) {
 
     if (PNODE->workspaceID != PNODE2->workspaceID) {
         std::swap(pWindow2->m_iMonitorID, pWindow->m_iMonitorID);
-        std::swap(pWindow2->m_iWorkspaceID, pWindow->m_iWorkspaceID);
+        std::swap(pWindow2->m_pWorkspace, pWindow->m_pWorkspace);
     }
 
     // massive hack: just swap window pointers, lol
@@ -595,11 +633,11 @@ void CHyprlandLayout::switchWindows(CWindow* pWindow, CWindow* pWindow2) {
     prepareNewFocus(pWindow2, inheritFullscreen);
 }
 
-void CHyprlandLayout::alterSplitRatio(CWindow* pWindow, float ratio, bool exact) {
+void CHyprlandLayout::alterSplitRatio(PHLWINDOW pWindow, float ratio, bool exact) {
     recalculateMonitor(pWindow->m_iMonitorID);
 }
 
-CWindow* CHyprlandLayout::getNextWindow(CWindow* pWindow, bool next) {
+PHLWINDOW CHyprlandLayout::getNextWindow(PHLWINDOW pWindow, bool next) {
     if (!isWindowTiled(pWindow))
         return nullptr;
     const auto PNODE = getNodeFromWindow(pWindow);
@@ -617,11 +655,11 @@ CWindow* CHyprlandLayout::getNextWindow(CWindow* pWindow, bool next) {
         CANDIDATE =
             std::find_if(nodes.begin(), nodes.end(), [&](const auto& other) { return other != *PNODE && ISMASTER != other.isMaster && other.workspaceID == PNODE->workspaceID; });
 
-    return CANDIDATE == nodes.end() ? nullptr : CANDIDATE->pWindow;
+    return CANDIDATE == nodes.end() ? nullptr : CANDIDATE->pWindow.lock();
 }
 
 
-bool CHyprlandLayout::prepareLoseFocus(CWindow* pWindow) {
+bool CHyprlandLayout::prepareLoseFocus(PHLWINDOW pWindow) {
     if (!pWindow)
         return false;
 
@@ -635,29 +673,22 @@ bool CHyprlandLayout::prepareLoseFocus(CWindow* pWindow) {
     return false;
 }
 
-void CHyprlandLayout::prepareNewFocus(CWindow* pWindow, bool inheritFullscreen) {
+void CHyprlandLayout::prepareNewFocus(PHLWINDOW pWindow, bool inheritFullscreen) {
     if (!pWindow)
         return;
 
-  if (pWindow && !pWindow->m_bIsFloating) { //leave floating windows alone
-    for (auto it = g_pCompositor->m_vWindows.begin(); it != g_pCompositor->m_vWindows.end(); ++it) {
-      if (it->get() == pWindow) {
-        std::rotate(it, it + 1, g_pCompositor->m_vWindows.end());
-        break;
-      }
-    }
-  }
-    if (inheritFullscreen)
-        g_pCompositor->setWindowFullscreen(pWindow, true, g_pCompositor->getWorkspaceByID(pWindow->m_iWorkspaceID)->m_efFullscreenMode);
+	  if (inheritFullscreen)
+	    g_pCompositor->setWindowFullscreen(pWindow, true, g_pCompositor->getWorkspaceByID(pWindow->workspaceID())->m_efFullscreenMode);
 }
 
+
 std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string message) {
-    auto switchToWindow = [&](CWindow* PWINDOWTOCHANGETO) {
-        if (!g_pCompositor->windowValidMapped(PWINDOWTOCHANGETO))
+    auto switchToWindow = [&](PHLWINDOW PWINDOWTOCHANGETO) {
+        if (!validMapped(PWINDOWTOCHANGETO))
             return;
 
         g_pCompositor->focusWindow(PWINDOWTOCHANGETO);
-        g_pCompositor->warpCursorTo(PWINDOWTOCHANGETO->m_vRealPosition.goalv() + PWINDOWTOCHANGETO->m_vRealSize.goalv() / 2.f);
+        g_pCompositor->warpCursorTo(PWINDOWTOCHANGETO->middle());
     };
     CVarList vars(message, 0, ' ');
 
@@ -683,8 +714,8 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
       if (!isWindowTiled(PWINDOW))
         return 0;
 
-      const auto PMASTER = getMasterNodeOnWorkspace(PWINDOW->m_iWorkspaceID);
-      const auto NEWCHILD = PMASTER->pWindow;
+      const auto PMASTER = getMasterNodeOnWorkspace(PWINDOW->workspaceID());
+      const auto NEWCHILD = PMASTER->pWindow.lock();
       if (PMASTER->pWindow != PWINDOW) {
         const auto NEWMASTER = PWINDOW;
         const bool newFocusToChild = vars.size() >= 2 && vars[1] == "child";
@@ -696,7 +727,7 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
         } else {
             for (auto& n : m_lHyprlandLayoutNodesData) {
                 if (n.workspaceID == PMASTER->workspaceID && !n.isMaster) {
-                    const auto NEWMASTER         = n.pWindow;
+                    const auto NEWMASTER         = n.pWindow.lock();
                     const bool inheritFullscreen = prepareLoseFocus(NEWCHILD);
                     switchWindows(NEWMASTER, NEWCHILD);
                     const bool newFocusToMaster = vars.size() >= 2 && vars[1] == "master";
@@ -717,22 +748,22 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
 
         const bool inheritFullscreen = prepareLoseFocus(PWINDOW);
 
-        const auto PMASTER = getMasterNodeOnWorkspace(PWINDOW->m_iWorkspaceID);
+        const auto PMASTER = getMasterNodeOnWorkspace(PWINDOW->workspaceID());
 
         if (!PMASTER)
             return 0;
 
-        if (PMASTER->pWindow != PWINDOW) {
-            switchToWindow(PMASTER->pWindow);
-            prepareNewFocus(PMASTER->pWindow, inheritFullscreen);
+        if (PMASTER->pWindow.lock() != PWINDOW) {
+            switchToWindow(PMASTER->pWindow.lock());
+            prepareNewFocus(PMASTER->pWindow.lock() , inheritFullscreen);
         } else if (vars.size() >= 2 && vars[1] == "master") {
             return 0;
         } else {
             // if master is focused keep master focused (don't do anything)
             for (auto& n : m_lHyprlandLayoutNodesData) {
                 if (n.workspaceID == PMASTER->workspaceID && !n.isMaster) {
-                    switchToWindow(n.pWindow);
-                    prepareNewFocus(n.pWindow, inheritFullscreen);
+                    switchToWindow(n.pWindow.lock());
+                    prepareNewFocus(n.pWindow.lock(), inheritFullscreen);
                     break;
                 }
             }
@@ -760,7 +791,7 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
         if (!PWINDOW)
           return 0;
 
-        if (!g_pCompositor->windowValidMapped(PWINDOW))
+        if (!validMapped(PWINDOW))
             return 0;
 
         if (PWINDOW->m_bIsFloating) {
@@ -777,7 +808,7 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
     } else if (command == "swapprev") {
         if (!PWINDOW)
           return 0;
-        if (!g_pCompositor->windowValidMapped(PWINDOW))
+        if (!validMapped(PWINDOW))
             return 0;
 
         if (PWINDOW->m_bIsFloating) {
@@ -794,7 +825,7 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
     } else if (command == "addmaster") {
       if (!PWINDOW)
         return 0;
-      if (!g_pCompositor->windowValidMapped(PWINDOW))
+      if (!validMapped(PWINDOW))
         return 0;
       if (PWINDOW->m_bIsFloating)
         return 0;
@@ -803,7 +834,7 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
       prepareLoseFocus(PWINDOW);
       if (!PNODE || PNODE->isMaster) {
         for (auto& n : m_lHyprlandLayoutNodesData) {
-          if (n.workspaceID == PWINDOW->m_iWorkspaceID) {
+          if (n.workspaceID == PWINDOW->workspaceID()) {
             n.isMaster = true;
             break;
           }
@@ -814,7 +845,7 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
     } else if (command == "removemaster") {
         if (!PWINDOW)
           return 0;
-        if (!g_pCompositor->windowValidMapped(PWINDOW))
+        if (!validMapped(PWINDOW))
             return 0;
 
         if (PWINDOW->m_bIsFloating)
@@ -827,7 +858,7 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
         if (!PNODE || !PNODE->isMaster) {
             // first non-master node
             for (auto& nd : m_lHyprlandLayoutNodesData | std::views::reverse) {
-                if (nd.workspaceID == header.pWindow->m_iWorkspaceID && nd.isMaster) {
+                if (nd.workspaceID == header.pWindow->workspaceID() && nd.isMaster) {
                     nd.isMaster = false;
                     break;
                 }
@@ -836,7 +867,7 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
             PNODE->isMaster = false;
         }
     } else if (command == "resetconfig") {
-      const auto WSID = header.pWindow->m_iWorkspaceID;
+      const auto WSID = header.pWindow->workspaceID();
       auto WSDATA = getLayoutWorkspaceData(WSID);
       if (WSDATA != nullptr) {
         WSDATA->layoutConfigData = "";
@@ -856,10 +887,11 @@ std::any CHyprlandLayout::layoutMessage(SLayoutMessageHeader header, std::string
     return 0;
 }
 
-void CHyprlandLayout::moveCWindowToEnd(CWindow *win) {
+			
+void CHyprlandLayout::moveCWindowToEnd(PHLWINDOW win) {
   if (win && !win->m_bIsFloating) { //leave floating windows alone
     for (auto it = g_pCompositor->m_vWindows.begin(); it != g_pCompositor->m_vWindows.end(); ++it) {
-      if (it->get() == win) {
+      if (it->get() == win.get()) {
         std::rotate(it, it + 1, g_pCompositor->m_vWindows.end());
         break;
       }
@@ -867,7 +899,7 @@ void CHyprlandLayout::moveCWindowToEnd(CWindow *win) {
   }
 
 }
-void CHyprlandLayout::onWindowFocusChange(CWindow *pNewFocus) {
+void CHyprlandLayout::onWindowFocusChange(PHLWINDOW pNewFocus) {
   //Hax. Anytime a tiled window gets focus, just move it to the rear of the compositor's window list.
   //Tiled windows are rendered such that the last one rendered it 'on top', and we want the last focused
   //window on a workspace to remain on top even when it loses focus.
@@ -880,7 +912,7 @@ void CHyprlandLayout::onWindowFocusChange(CWindow *pNewFocus) {
 }
 
 
-void CHyprlandLayout::replaceWindowDataWith(CWindow* from, CWindow* to) {
+void CHyprlandLayout::replaceWindowDataWith(PHLWINDOW from, PHLWINDOW to) {
     const auto PNODE = getNodeFromWindow(from);
 
     if (!PNODE)
@@ -894,13 +926,14 @@ void CHyprlandLayout::replaceWindowDataWith(CWindow* from, CWindow* to) {
 
 void CHyprlandLayout::onEnable() {
     for (auto& w : g_pCompositor->m_vWindows) {
-        if (w->m_bIsFloating || !w->m_bMappedX11 || !w->m_bIsMapped || w->isHidden())
+        if (w->m_bIsFloating || !w->m_bIsMapped || w->isHidden())
             continue;
 
-        onWindowCreatedTiling(w.get());
+        onWindowCreatedTiling(w);
+						/*
         if (g_pCompositor->m_pLastWindow == w.get()) {
           moveCWindowToEnd(w.get());
-        }
+        }*/
     }
 }
 
@@ -908,3 +941,9 @@ void CHyprlandLayout::onDisable() {
     m_lHyprlandLayoutNodesData.clear();
 
 }
+
+Vector2D CHyprlandLayout::predictSizeForNewWindowTiled() {
+	//What the fuck is this shit. Seriously.
+	return {};
+}
+

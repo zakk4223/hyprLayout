@@ -67,6 +67,7 @@
       <arg name="is_master" type="uint" summary="is this window part of the master stack?"/>
       <arg name="is_active" type="uint" summary="is this the current active/focused window"/>
 	    <arg name="user_modified" type="uint" summary="the windows dimensions/position were influenced by the user input outside of the layout"/>
+			<arg name="tags" type="string" summary="Window tags, comma separated"/>
 	    <arg name="serial" type="uint" summary="serial of the relevant layout request"/>
     </event>
 

@@ -14,8 +14,3 @@ class LayoutRequest(LayoutRequestBase):
             win.height = self.usable_h
         self.commit_new_layout()
 
-
-    def user_command(self, command):
-        cmd_words = command.split()
-        if cmd_words[0] == "masterratio":
-            self.layout_config['masterratio'] = float(cmd_words[1])

@@ -1,4 +1,4 @@
-#!/usr/bin/env /home/zakk/.venv/bin/python3
+#!/usr/bin/env python3
 #
 import importlib
 import importlib.util
@@ -7,7 +7,7 @@ import sys
 import json
 import io
 
-from pywayland.client import Display
+from pywayland.client.display import Display
 
 try:
     import pyprotocol.hyprland_layout_v1
@@ -29,7 +29,7 @@ loop = True
 layout_info = {}
 
 class LayoutWindow(object):
-    def __init__(self, window_id, x, y, width, height, is_master, is_active, user_modified):
+    def __init__(self, window_id, x, y, width, height, is_master, is_active, user_modified, tag_str):
         self.window_id = window_id
         self.cur_x = x
         self.cur_y = y
@@ -38,6 +38,7 @@ class LayoutWindow(object):
         self.is_master = is_master
         self.is_active = is_active
         self.user_modified = user_modified
+        self.tag_str = tag_str
         self.x = x 
         self.y = y 
         self.width = width 
@@ -86,8 +87,8 @@ class LayoutRequestBase(object):
         self.commit_new_layout()
 
 
-    def add_window_info(self, window_id, x, y, width, height, is_master, is_active, user_modified):
-        lw = LayoutWindow(window_id, x, y, width, height, is_master, is_active,user_modified)
+    def add_window_info(self, window_id, x, y, width, height, is_master, is_active, user_modified, tag_str):
+        lw = LayoutWindow(window_id, x, y, width, height, is_master, is_active,user_modified, tag_str)
         lw.window_idx = len(self.windows)
         self.windows.append(lw)
         self.windows_by_id[window_id] = lw
@@ -131,7 +132,7 @@ def layout_handle_layout_demand_config(layout, config_data, serial):
     if not req_obj: return
     req_obj.layout_demand_config(config_data)
 
-def layout_handle_window_info(layout, window_id, x, y, width, height, is_master, is_active, user_modified, serial):
+def layout_handle_window_info(layout, window_id, x, y, width, height, is_master, is_active, user_modified, tag_string, serial):
     global proxy_map
     global loaded_layouts
 
@@ -139,7 +140,7 @@ def layout_handle_window_info(layout, window_id, x, y, width, height, is_master,
     if not layout_name: return
     req_obj = loaded_layouts[layout_name]['requests'][serial]
     if not req_obj: return
-    req_obj.add_window_info(window_id, x, y, width, height, is_master, is_active, user_modified)
+    req_obj.add_window_info(window_id, x, y, width, height, is_master, is_active, user_modified, tag_string)
 
 
 def layout_handle_layout_demand(layout, usable_w, usable_h, workspace_id, window_count, serial):
